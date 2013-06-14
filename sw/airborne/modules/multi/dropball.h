@@ -42,6 +42,6 @@ bool_t dropball_goto_block(void);
 bool_t dropball_WpNew(uint8_t wp1, uint8_t wp2, uint8_t wp3, uint8_t wp4);
 
 void on_dropball(void);
-void parse_on_dropball_found(uint8_t wp_id,  uint8_t ac_id, uint32_t enu_x, uint32_t enu_y, uint32_t enu_z);
+void parse_on_dropball_found(uint8_t wp_id);
 
 #endif // DROPBALL

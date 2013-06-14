@@ -70,6 +70,7 @@ void nps_ivy_init(char* ivy_bus) {
 #include "generated/settings.h"
 #include "dl_protocol.h"
 #include "subsystems/datalink/downlink.h"
+#include "modules/multi/dropball.h"
 static void on_DL_SETTING(IvyClientPtr app __attribute__ ((unused)),
                           void *user_data __attribute__ ((unused)),
                           int argc __attribute__ ((unused)), char *argv[]) {
@@ -141,7 +142,10 @@ static void on_DL_DROPBALL_FOUND(IvyClientPtr app __attribute__ ((unused)),
   enu.x = POS_BFP_OF_REAL(enu.x)/100;
   enu.y = POS_BFP_OF_REAL(enu.y)/100;
   enu.z = POS_BFP_OF_REAL(enu.z)/100;
-  parse_on_dropball_found(wp_id, ac_id, enu.x, enu.y, enu.z);
+  VECT3_ASSIGN(waypoints[wp_id], enu.x, enu.y, enu.z);
+  DOWNLINK_SEND_WP_MOVED_ENU(DefaultChannel, DefaultDevice, &wp_id, &enu.x, &enu.y, &enu.z);
+  printf("move wp id=%d x=%d y=%d z=%d\n", wp_id, enu.x, enu.y, enu.z);
+  parse_on_dropball_found(wp_id);
 }
 
 
