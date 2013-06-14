@@ -1,0 +1,15 @@
+<!DOCTYPE module SYSTEM "module.dtd">
+
+<module name="dropball" dir="multi">
+  <doc>
+    <description>Dropball</description>
+  </doc>
+  <header>
+    <file name="dropball.h"/>
+  </header>
+  <datalink message="DROPBALL_FOUND" fun="on_dropball()"/>
+  <makefile>
+    <file name="dropball.c"/>
+  </makefile>
+</module>
+

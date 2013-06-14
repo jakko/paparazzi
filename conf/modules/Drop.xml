@@ -1,0 +1,15 @@
+<!DOCTYPE module SYSTEM "module.dtd">
+
+<module name="Drop" dir="multi">
+  <doc>
+    <description>onzin</description>
+  </doc>
+  <header>
+    <file name="Drop.h"/>
+  </header>
+  <init fun="DropBall_init"/>
+  <makefile>
+    <file name="Drop.c"/>
+  </makefile>
+</module>
+

@@ -1,0 +1,178 @@
+<!DOCTYPE flight_plan SYSTEM "flight_plan.dtd">
+
+<flight_plan alt="198" ground_alt="188" lat0="43.449546" lon0="1.263386" max_dist_from_home="500" name="FP_Group12" qfu="190" security_height="3">
+  <header>
+     #include"modules/multi/dropball.h" 
+     #include "subsystems/navigation/nav_line.h"
+  </header>
+  <waypoints>
+    <waypoint name="HOME" x="125.5" y="-5.0"/>
+    <waypoint name="STDBY" x="165.3" y="-21.1"/>
+    <waypoint name="Arch1" x="129.7" y="-59.1"/>
+    <waypoint name="Arch2" x="39.1" y="-11.8"/>
+    <waypoint name="VTOL" x="184.8" y="-86.5"/>
+    <waypoint alt="193" name="DZ1" x="-71.8" y="54.7"/>
+    <waypoint alt="193" name="DZ2" x="-17.2" y="-51.8"/>
+    <waypoint alt="193" name="DZ3" x="111.5" y="-139.5"/>
+    <waypoint alt="193" name="DZ4" x="281.1" y="-149.5"/>
+    <waypoint name="Pole1" x="-97.6" y="-37.2"/>
+    <waypoint name="Pole2" x="210.3" y="-200.1"/>
+    <waypoint name="Start" x="-69.8" y="-17"/>
+    <waypoint name="QR1" x="-170.4" y="-48.1"/>
+    <waypoint name="QR2" x="-306.412304237" y="26.0699327476"/>
+    <waypoint name="QR4" x="-55.4" y="135.1"/>
+    <waypoint name="QR3" x="-190.8" y="208.0"/>
+    <waypoint name="TZ1" x="119.6" y="17.8"/>
+    <waypoint name="TZ4" x="105.6" y="-6.6"/>
+    <waypoint name="TZ2" x="185.3" y="-17.9"/>
+    <waypoint name="TZ3" x="171.6" y="-41.5"/>
+    <waypoint name="VZ1" x="138.8" y="51.6"/>
+    <waypoint name="VZ2" x="202.3" y="16.5"/>
+    <waypoint name="FA1" x="-191.1" y="249.1"/>
+    <waypoint name="FA2" x="373.9" y="-27.7"/>
+    <waypoint name="FA3" x="202.0" y="-305.8"/>
+    <waypoint name="FA4" x="-357.8" y="-18.0"/>
+    <waypoint alt="188" name="TD" x="5.6" y="-10.9"/>
+    <waypoint name="CLIMB" x="167.3" y="-11.1"/>
+    <waypoint name="NEXT1" x="184.8" y="-51.8"/>
+    <waypoint name="NEXT2" x="184.8" y="-51.8"/>
+    <waypoint name="NEXT3" x="184.8" y="-51.8"/>
+    <waypoint name="NEXT4" x="184.8" y="-51.8"/>
+  </waypoints>
+
+  <sectors>
+    <sector color="red" name="QR_Area">
+      <corner name="QR1"/>
+      <corner name="QR2"/>
+      <corner name="QR3"/>
+      <corner name="QR4"/>
+    </sector>
+    <sector color="yellow" name="Team_Zone">
+      <corner name="TZ1"/>
+      <corner name="TZ2"/>
+      <corner name="TZ3"/>
+      <corner name="TZ4"/>
+    </sector>
+    <sector color="blue" name="Visitor_Zone">
+      <corner name="VZ1"/>
+      <corner name="VZ2"/>
+      <corner name="TZ2"/>
+      <corner name="TZ1"/>
+    </sector>
+    <sector color="green" name="Flight_Area">
+      <corner name="FA1"/>
+      <corner name="FA2"/>
+      <corner name="FA3"/>
+      <corner name="FA4"/>
+    </sector>
+  </sectors>
+
+<!--stay within flight area:-->
+  <exceptions>
+    <exception cond="Or(! InsideFlight_Area(GetPosX(), GetPosY()), GetPosAlt() > ground_alt + 50)" deroute="HOME"/>
+  </exceptions>
+
+  <blocks>
+<!--Establish GPS fix-->
+    <block name="Wait GPS">
+      <call fun="NavKillThrottle()"/>
+      <while cond="!GpsFixValid()"/>
+    </block>
+<!--Update local waypoints with respect to MAV-->
+    <block name="Geo init">
+      <while cond="LessThan(NavBlockTime(), 10)"/>
+      <!--<call fun="dropball_WpFound()"/>-->
+      <call fun="NavSetGroundReferenceHere()"/>
+    </block>
+<!--Prevent MAV from starting--> 
+    <block name="Holding point">
+      <call fun="NavKillThrottle()"/>
+      <attitude pitch="0" roll="0" throttle="0" vmode="throttle" until="FALSE"/>
+    </block>
+<!--Start engine-->
+    <block name="Start Engine">
+      <call fun="NavResurrect()"/>
+      <attitude pitch="0" roll="0" throttle="0" vmode="throttle" until="FALSE"/>
+    </block>
+<!--Take off-->
+    <block name="Takeoff" strip_button="Takeoff" strip_icon="takeoff.png">
+      <!--<exception cond="stateGetPositionEnu_f()->z > 3" deroute="Standby"/>-->
+      <call fun="NavSetWaypointHere(WP_HOME)"/>
+      <stay vmode="climb" climb="0.5" wp="HOME"/>
+    </block>
+<!--Standby-->
+    <block name="Standby" strip_button="Standby" strip_icon="home.png">
+      <stay alt="10" vmode="alt" wp="HOME"/>
+    </block>
+<!--Fly to precision landing spot-->
+    <block name="Go_VTOL">
+      <go wp="VTOL" hmode="route"/>
+    </block>
+<!--Set waypoint for precision landing spot-->
+    <block name="land here" strip_button="Land Here" strip_icon="land-right.png">
+      <call fun="NavSetWaypointHere(WP_TD)"/>
+    </block>
+    <block name="land">
+      <go wp="TD"/>
+    </block>
+    <block name="flare">
+      <exception cond="NavDetectGround()" deroute="Holding point"/>
+      <call fun="NavStartDetectGround()"/>
+      <stay climb="-0.3" vmode="climb" wp="TD"  until="FALSE"/>
+    </block>
+<!-- Wait 10 seconds-->
+    <block name="Wait">
+      <call fun="NavKillThrottle()"/>
+    </block>
+<!-- take-off again-->
+    <block name="Start Engine 2">
+      <call fun="NavResurrect()"/>
+      <attitude pitch="0" roll="0" throttle="0" vmode="throttle" until="FALSE"/>
+    </block>
+    <block name="Takeoff2" strip_button="Takeoff2" strip_icon="takeoff.png">
+      <!--<exception cond="stateGetPositionEnu_f()->z > 3" deroute="Standby"/>-->
+      <call fun="NavSetWaypointHere(WP_CLIMB)"/>
+      <stay vmode="climb" climb="0.5" wp="CLIMB" until="GetPosAlt()>ground_alt+10"/>
+    </block>
+<!--Fly to corridor-->
+    <block name="Go_Cor">
+      <go from="VTOL" wp="Arch1" hmode="route"/>  
+    </block>
+<!--Fly through corridor-->
+    <block name="Corridor">
+      <go from="Arch1" wp="Arch2" hmode="route" throttle="0.3"/>
+      <!-- for testing-->
+      <call fun="dropball_WpNew(WP_NEXT1, WP_NEXT2, WP_NEXT3, WP_NEXT4)"/>
+      <!---->
+    </block>
+<!--Fly to dropzone with pre call testing
+    <block name="GoToBestWp">
+      <call fun="dropball_WpNew(WP_DZ1, WP_DZ2, WP_DZ3, WP_DZ4)"/>
+    </block>-->
+<!--Fly to dropzone with pre call testing-->
+    <block name="Dropzone1">
+      <go wp="NEXT1" hmode="route" vmode="glide"/>
+    </block>
+<!--Fly to dropzone 2-->
+    <block name="Dropzone2">
+      <go wp="NEXT2" hmode="route"/>
+    </block>
+<!--Fly to dropzone 3-->
+    <block name="Dropzone3">
+      <go wp="NEXT3" hmode="route"/>
+    </block>
+<!--Fly to dropzone 4-->
+    <block name="Dropzone4">
+      <go wp="NEXT4" hmode="route"/>
+    </block>
+<!--Fly to start flight performance-->
+    <block name="Start_FP">
+      <go from="NEXT4" wp="Start" hmode="route"/>
+    </block>
+<!--Start flight performance element-->
+    <block name="Flight_performance">
+      <go from="Pole1" wp="Pole2" hmode="route"/>
+    </block>
+  </blocks>
+
+</flight_plan>
