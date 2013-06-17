@@ -145,10 +145,6 @@
       <call fun="dropball_WpNew(WP_NEXT1, WP_NEXT2, WP_NEXT3, WP_NEXT4)"/>
       <!---->
     </block>
-<!--Fly to dropzone with pre call testing
-    <block name="GoToBestWp">
-      <call fun="dropball_WpNew(WP_DZ1, WP_DZ2, WP_DZ3, WP_DZ4)"/>
-    </block>-->
 <!--Fly to dropzone with pre call testing-->
     <block name="Dropzone1">
       <go wp="NEXT1" hmode="route" vmode="glide"/>

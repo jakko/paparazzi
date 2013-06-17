@@ -20,75 +20,75 @@
  *
  */
 
-/** \file tcas.c
- *  \brief
+/** \file modules/multi/dropball.c
+ *  Dropball implementation for IMAV2013 (mavlab TU Delft DSE)
  *
  */
 
-#include <stdio.h>
-#include <math.h> 
-#include <stdlib.h>
-
 #include "multi/dropball.h"
 
+#include "state.h"
 #include "generated/airframe.h"
 #include "generated/flight_plan.h"
-#include "generated/modules.h"
-
-#include "state.h"
-#include "messages.h"
-
+#include "subsystems/ins.h"
+#include "subsystems/datalink/downlink.h"
+#include "subsystems/datalink/datalink.h"
+#include "firmwares/rotorcraft/navigation.h"
 #include "math/pprz_geodetic_int.h"
 
 #define DOWNLINK_DEVICE DOWNLINK_AP_DEVICE
 
-#include "subsystems/datalink/downlink.h"
-#include "subsystems/datalink/datalink.h"
-#include "subsystems/ins.h"
-#include "mcu_periph/uart.h"
-#include "firmwares/rotorcraft/navigation.h"
-
-uint8_t move_dropball_wp_id;
-uint8_t move_dropball_ac_id;
-
-uint8_t block_id;
-uint8_t ac_id;
-
 /* Make a vector containing only the dropball waypoints and their status */
 static struct dropball_waypoint dropball_waypoints[] = {
-  {.wp = WP_DZ1, .detected = TRUE, .dropped = FALSE},
-  {.wp = WP_DZ2, .detected = FALSE, .dropped = FALSE},
-  {.wp = WP_DZ3, .detected = TRUE, .dropped = FALSE},
-  {.wp = WP_DZ4, .detected = TRUE, .dropped = FALSE},
+  {WP_DZ1, TRUE, FALSE},
+  {WP_DZ2, FALSE, FALSE},
+  {WP_DZ3, TRUE, FALSE},
+  {WP_DZ4, TRUE, FALSE},
 };
-
-/* swap function */
-void swap(uint8_t a, uint8_t b) { 
-  uint8_t temp = a;
-  a = b;
-  b = temp;
-}
 
 /* find factorial of a number */
 uint32_t factorial(uint32_t n) {
-    if (n<=1)
-        return(1);
-    else
-        n=n*factorial(n-1);
-    return(n);
+  if (n<=1)
+    return(1);
+  else
+    n=n*factorial(n-1);
+  return(n);
+}
+
+/* find the next lexicographical permutation */
+bool_t next_lex_perm(uint8_t *a, int n) {
+#define swap(i, j) {t = a[i]; a[i] = a[j]; a[j] = t;}
+  uint8_t k, l, t;
+
+  /* 1. Find the largest index k such that a[k] < a[k + 1]. If no such
+	  index exists, the permutation is the last permutation. */
+  for (k = n - 1; k && a[k - 1] >= a[k]; k--);
+  if (!k--) return FALSE;
+
+  /* 2. Find the largest index l such that a[k] < a[l]. Since k + 1 is
+   such an index, l is well defined */
+  for (l = n - 1; a[l] <= a[k]; l--);
+
+  /* 3. Swap a[k] with a[l] */
+  swap(k, l);
+
+  /* 4. Reverse the sequence from a[k + 1] to the end */
+  for (k++, l = n - 1; l > k; l--, k++)
+  	swap(k, l);
+  return TRUE;
+#undef swap
 }
 
 /* Send message */
 bool_t dropball_WpFound(void){
-  move_dropball_ac_id = 10;
-  move_dropball_wp_id = WP_DZ1;
+  uint8_t move_dropball_ac_id = 10;
+  uint8_t move_dropball_wp_id = WP_DZ1;
   struct LlaCoor_i new_cord;
   new_cord.lat = 434505560;
   new_cord.lon = 12640240;
   new_cord.alt = 500;
 
   DOWNLINK_SEND_FOUND_DROPBALL(DefaultChannel, DefaultDevice, &move_dropball_wp_id, &move_dropball_ac_id, &new_cord.lat, &new_cord.lon, &new_cord.alt);
-
   return FALSE;
 }
 
@@ -96,8 +96,8 @@ bool_t dropball_WpFound(void){
 
 /* parse for the real aircraft */
 void on_dropball(void) {
-  uint8_t ac_id = DL_DROPBALL_FOUND_ac_id(dl_buffer);
-  /*if (ac_id != AC_ID) 
+  /*uint8_t ac_id = DL_DROPBALL_FOUND_ac_id(dl_buffer);
+  if (ac_id != AC_ID)
       return;*/
   uint8_t wp_id = DL_DROPBALL_FOUND_wp_id(dl_buffer);
   struct LlaCoor_i lla;
@@ -127,137 +127,122 @@ void parse_on_dropball_found(uint8_t wp_id) {
 
 /* Send an urgent go to block */
 bool_t dropball_goto_block(void){
-  block_id = 13;
-  ac_id = 10;
+  uint8_t block_id = 13;
+  uint8_t ac_id = 10;
 
   DOWNLINK_SEND_GOTOBLOCK(DefaultChannel, DefaultDevice, &block_id, &ac_id);
-
   return FALSE;
 }
 
 /* Find shortest route */
 bool_t dropball_WpNew(uint8_t wp1, uint8_t wp2, uint8_t wp3, uint8_t wp4){
-
-  struct dropball_new_waypoint {
-  uint8_t wp;
-  };
-  struct dropball_new_waypoint dropball_new_waypoints[] = {
-  {.wp = wp1},
-  {.wp = wp2},
-  {.wp = wp3},
-  {.wp = wp4},
-  };
+  /* just copy the waypoints to a vector for easy use */
+  uint8_t dropball_new_waypoints[4] = { wp1, wp2, wp3, wp4 };
 
   /* determine the length of the waypoints and set the initial route */
-  uint8_t i, j;
-  uint8_t wp_routes[24][6]; // With FIRST and LAST
+  uint8_t i, j; // Used for several loops
   uint8_t wp_skip_count = 0; // Amount of waypoints that aren't found or already dropped
   uint8_t length = 0; // Amount of waypoints - wp_skip_count
-  uint8_t swap_temp[4]; // Without FIRST and LAST
+  uint8_t swap_temp[4]; // Without current position and end position
 
-  wp_routes[0][0] = 0;
-  printf(" wp_routes[0] = %i ", wp_routes[0][0]);
+  /* Find all dropball points where I could go to */
+  printf("Initial waypoints: ");
   for (i = 0; i < NB_DROPBALL_WP; i++) {
     // Check if we know where a dropball point is
     if ( dropball_waypoints[i].detected == FALSE ||  dropball_waypoints[i].dropped == TRUE){
       wp_skip_count++;
     }
     else {
-      // Set the initial first route and swap temp
-      wp_routes[0][i-wp_skip_count+1] = dropball_waypoints[i].wp;
+      // Set the initial swap temp
       swap_temp[i-wp_skip_count] = dropball_waypoints[i].wp;
       length++;
 
-      printf("%i " , wp_routes[0][i-wp_skip_count+1]);
+      printf("%i " , swap_temp[i-wp_skip_count]);
     }
   }
-  wp_routes[0][length+1] = WP_Start;
   /* determine length of the vector */
-  printf(" %i\r\n length: %i skipped: %i\r\n", wp_routes[0][length+1], length, wp_skip_count);
+  printf("(length: %i, skipped: %i)\r\n", length, wp_skip_count);
 
   /* determine the distances between the route elements */
   uint32_t wp_distances[NB_WAYPOINT][NB_WAYPOINT];
-  for(i = 0; i < length+1; i++) {
-    for(j = i+1; j < length+2; j++) {
-      struct Int32Vect3 pos_diff;
-      
-      // Check if it is the first waypoint
-      if(wp_routes[0][i] == 0) {
-        VECT3_DIFF(pos_diff, *stateGetPositionEnu_i(), waypoints[wp_routes[0][j]]);
-      } else if(wp_routes[0][j] == 0) {
-        VECT3_DIFF(pos_diff, waypoints[wp_routes[0][i]], *stateGetPositionEnu_i());
-      } else {
-        VECT3_DIFF(pos_diff, waypoints[wp_routes[0][i]], waypoints[wp_routes[0][j]]);
-      }
-
+  for (i = 0; i < length-1; i++) {
+    for (j = i+1; j < length; j++) {
       // Calculate the distance
-      VECT3_ABS(pos_diff, pos_diff);  
-      wp_distances[wp_routes[0][i]][wp_routes[0][j]] = sqrt((pos_diff.x)^2 + (pos_diff.y)^2 + (pos_diff.z)^2);
-      wp_distances[wp_routes[0][j]][wp_routes[0][i]] = wp_distances[i][j];
+      struct Int32Vect3 pos_diff;
+      VECT3_DIFF(pos_diff, waypoints[swap_temp[i]], waypoints[swap_temp[j]]);
+      VECT3_ABS(pos_diff, pos_diff);
+      wp_distances[swap_temp[i]][swap_temp[j]] = sqrt(pow(pos_diff.x, 2) + pow(pos_diff.y,2) + pow(pos_diff.z,2));
+      wp_distances[swap_temp[j]][swap_temp[i]] = wp_distances[swap_temp[i]][swap_temp[j]];
      
-      printf("Calculated distance %i <-> %i: %i\r\n", wp_routes[0][i], wp_routes[0][j], wp_distances[wp_routes[0][i]][wp_routes[0][j]]);
+      printf("Calculated distance %i <-> %i: %i\r\n", swap_temp[i], swap_temp[j], wp_distances[swap_temp[i]][swap_temp[j]]);
     }
   }
   
+  /* determine the distances between the current position and the end position */
+  uint32_t first_distances[NB_WAYPOINT]; // Distances from current position to waypoints from route
+  uint32_t last_distances[NB_WAYPOINT]; // Distances from waypoints from route to end position
+  printf(" debug ");
+  for (i = 0; i < length; i++) {
+	struct Int32Vect3 pos_diff;
+        printf(" debug ");
+	// Distance from current position
+	VECT3_DIFF(pos_diff, *stateGetPositionEnu_i(), waypoints[swap_temp[i]]);
+	VECT3_ABS(pos_diff, pos_diff);
+	first_distances[swap_temp[i]] = sqrt(pow(pos_diff.x, 2) + pow(pos_diff.y,2) + pow(pos_diff.z,2));
+	printf("Calculated distance START -> %i: %i\r\n", swap_temp[i], first_distances[swap_temp[i]]);
+
+	// Distance to end position
+	VECT3_DIFF(pos_diff, waypoints[swap_temp[i]], waypoints[WP_Start]);
+	VECT3_ABS(pos_diff, pos_diff);
+	last_distances[swap_temp[i]] = sqrt(pow(pos_diff.x, 2) + pow(pos_diff.y,2) + pow(pos_diff.z,2));
+	printf("Calculated distance %i -> END(WP_Start): %i\r\n", swap_temp[i], last_distances[swap_temp[i]]);
+  }
+
   /* initialize matrix with possible routes */
-  uint8_t N;
-  uint8_t z;
-  uint32_t wp_route_dist[24];
-  uint32_t min_distance = 4294967295;
-  uint8_t min_route_idx;
+  uint16_t wp_routs_fact = factorial(length); // Factorial of the length
+  uint32_t wp_route_dist[wp_routs_fact]; // The distances of the routes
+  uint8_t wp_routes[wp_routs_fact][length]; // All the possible routes TODO: Only save min_route and not min_route_idx
+  uint32_t min_distance = 4294967295; // The minimum distance found (set to maximum uint32 at start)
+  uint8_t min_route_idx = 0; // The index of the minimum distance route
 
   /* find all possible routes */
-  for(z=1; z < factorial(length); z++) {
-     for (i=0; i < length; i++) {
-          N = length; 
-          i = length - 1;  
-      
-          while(swap_temp[i-1] >= swap_temp[i]) {
-            i = i - 1;
-          }
-          j = N;  
-      
-          while (swap_temp[j-1] <= swap_temp[i-1]) {
-            j = j - 1;
-          }
-          swap(swap_temp[i-1], swap_temp[j-1]);
-      
-          i++;  
-          j = N;
-      
-          while (i < j){
-             swap(swap_temp[i-1], swap_temp[j-1]); 
-             i++; 
-             j--;  
-          }
-      }
+  for (i = 0; i < wp_routs_fact; i++) {
+    /* Save the route and calculate the distance of the route */
+    printf("Route %i: ", i);
 
-      // Set the route and calculate the total distance
-      wp_routes[z][0] = 0;
-      printf(" Route %i: ", z);
-      for (i=0; i < length; i++) {
-        wp_routes[z][i+1] = swap_temp[i];
-        wp_route_dist[z] += wp_distances[wp_routes[z][i]][wp_routes[z][i+1]]; 
-        printf("%i ", swap_temp[i]);
-      }
-      wp_routes[z][length+1] = WP_Start;
-      wp_route_dist[z] += wp_distances[wp_routes[z][length]][wp_routes[z][length+1]];
-      printf("%i (distance: %i)\r\n", wp_routes[z][length+1], wp_route_dist[z]);
+    // Add distance from current position to first of route
+    wp_route_dist[i] = first_distances[swap_temp[0]];
 
-      // When the distance is less then the minimum route
-      if(wp_routes[z][6] < min_distance) {
-        min_route_idx = z;
-        min_distance = wp_route_dist[z];
-      }
+    // Add the route and update the distance from the route
+    for (j = 0; j < length; j++) {
+      wp_routes[i][j] = swap_temp[j];
+      // Because distances are calculated between two points
+      if (j != length-1)
+        wp_route_dist[i] += wp_distances[swap_temp[j]][swap_temp[j+1]];
+      printf("%i ", swap_temp[j]);
+    }
+
+    // Add distance from the last of the route to the end point
+    wp_route_dist[i] += last_distances[swap_temp[length-1]];
+    printf("(distance: %i)\r\n", wp_route_dist[i]);
+
+    // When the distance is less then the minimum route
+    if (wp_route_dist[i] < min_distance) {
+      min_route_idx = i;
+      min_distance = wp_route_dist[i];
+    }
+
+    /* Calculate the next route */
+    next_lex_perm(swap_temp, length);
   }
   
   /* move waypoints NEXT1, NEXT2, NEXT3 and NEXT4 to the new locations */
-  printf("shorest route:");
-  for (i=1; i < length; i++) {
-    nav_move_waypoint(dropball_new_waypoints[i-1].wp, &waypoints[wp_routes[min_route_idx][i]]);
-    printf(" %d ", wp_routes[min_route_idx][i]);
+  printf("Shortest route: ");
+  for (i=0; i < length; i++) {
+    nav_move_waypoint(dropball_new_waypoints[i], &waypoints[wp_routes[min_route_idx][i]]);
+    printf("%d ", wp_routes[min_route_idx][i]);
   }
-  printf("\n shortest path: 	%i\n", min_distance);
+  printf("(distance: %i)\r\n", min_distance);
   
   return FALSE;
 }
